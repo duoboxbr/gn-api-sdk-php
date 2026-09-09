@@ -83,6 +83,10 @@
         "route": "/v1/subscription/:id",
         "method": "get"
       },
+      "updateSubscription": {
+        "route": "/v1/subscription/:id",
+        "method": "put"
+      },
       "paySubscription": {
         "route": "/v1/subscription/:id/pay",
         "method": "post"

@@ -67,21 +67,87 @@ class Request
             }
 
             $response = $this->client->request($method, $route, $requestOptions);
+            $responseBody = (string) $response->getBody();
 
-            return json_decode($response->getBody(), true);
+            $this->logApi($method, $route, $requestOptions, [
+                'responseCode' => $response->getStatusCode(),
+                'responseHeaders' => $response->getHeaders(),
+                'responseData' => $responseBody,
+            ]);
+
+            return json_decode($responseBody, true);
         } catch (ClientException $e) {
-            if (is_array(json_decode($e->getResponse()->getBody(), true)) && $e->getResponse()->getStatusCode() != 401) {
-                throw new GerencianetException(json_decode($e->getResponse()->getBody(), true), $e->getResponse()->getStatusCode());
+            $responseBody = (string) $e->getResponse()->getBody();
+
+            $this->logApi($method, $route, $requestOptions, [
+                'responseCode' => $e->getResponse()->getStatusCode(),
+                'responseHeaders' => $e->getResponse()->getHeaders(),
+                'responseData' => $responseBody,
+            ]);
+
+            if (is_array(json_decode($responseBody, true)) && $e->getResponse()->getStatusCode() != 401) {
+                throw new GerencianetException(json_decode($responseBody, true), $e->getResponse()->getStatusCode());
             } else {
                 throw new AuthorizationException(
                     $e->getResponse()->getStatusCode(),
                     $e->getResponse()->getReasonPhrase(),
-                    $e->getResponse()->getBody()
+                    $responseBody
                 );
             }
         } catch (ServerException $se) {
-            throw new GerencianetException($se->getResponse()->getBody(), $se->getResponse()->getStatusCode());
+            $responseBody = (string) $se->getResponse()->getBody();
+
+            $this->logApi($method, $route, $requestOptions, [
+                'responseCode' => $se->getResponse()->getStatusCode(),
+                'responseHeaders' => $se->getResponse()->getHeaders(),
+                'responseData' => $responseBody,
+            ]);
+
+            throw new GerencianetException($responseBody, $se->getResponse()->getStatusCode());
+        } catch (\Exception $e) {
+            $this->logApi($method, $route, $requestOptions, [
+                'curlErrorMessage' => $e->getMessage(),
+            ]);
+
+            throw $e;
         }
+    }
+
+    /**
+     * Salva o log da requisição/resposta via log_api_save(), quando disponível
+     * (função definida pelo ispbox — a SDK também é usada fora dele, por isso o function_exists)
+     */
+    private function logApi($method, $route, array $requestOptions, array $response): void
+    {
+        if (!function_exists('log_api_save')) {
+            return;
+        }
+
+        $body = $requestOptions['json'] ?? null;
+
+        log_api_save(array_merge([
+            'method' => strtoupper($method),
+            'url' => rtrim($this->config['baseUri'], '/') . '/' . ltrim($route, '/'),
+            'requestHeaders' => $this->buildRequestHeaders($method, $route, $requestOptions),
+            'requestBody' => is_array($body) ? json_encode($body) : $body,
+        ], $response));
+    }
+
+    /**
+     * Monta o bloco de headers HTTP da requisição no mesmo formato usado
+     * pelo restante do sistema (linha de request + Host + demais headers)
+     */
+    private function buildRequestHeaders($method, $route, array $requestOptions): string
+    {
+        $host = parse_url($this->config['baseUri'], PHP_URL_HOST);
+
+        $lines = [strtoupper($method) . ' ' . $route . ' HTTP/1.1', 'Host: ' . $host];
+
+        foreach (($requestOptions['headers'] ?? []) as $name => $value) {
+            $lines[] = $name . ': ' . (is_array($value) ? implode(', ', $value) : $value);
+        }
+
+        return implode("\r\n", $lines) . "\r\n";
     }
 
     public function __get($property)
