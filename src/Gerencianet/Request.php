@@ -103,7 +103,15 @@ class Request
                 'responseData' => $responseBody,
             ]);
 
-            throw new GerencianetException($responseBody, $se->getResponse()->getStatusCode());
+            $decodedBody = json_decode($responseBody, true);
+
+            throw new GerencianetException(
+                is_array($decodedBody) ? $decodedBody : [
+                    'nome' => 'server_error',
+                    'mensagem' => $responseBody !== '' ? $responseBody : $se->getResponse()->getReasonPhrase(),
+                ],
+                $se->getResponse()->getStatusCode()
+            );
         } catch (\Exception $e) {
             $this->logApi($method, $route, $requestOptions, [
                 'curlErrorMessage' => $e->getMessage(),
